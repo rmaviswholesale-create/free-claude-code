@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/user/free-claude-code/scripts/fcc-session-start.sh",
+            "async": true,
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
