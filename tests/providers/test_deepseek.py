@@ -1118,3 +1118,60 @@ def test_no_warning_when_no_attachments(deepseek_provider, caplog):
         for r in caplog.records
         if r.levelno == logging.WARNING
     )
+
+
+def test_build_request_body_strips_tool_schema_patterns(deepseek_provider):
+    request = MessagesRequest(
+        model="deepseek-v4-pro",
+        max_tokens=100,
+        messages=[Message(role="user", content="hi")],
+        tools=[
+            Tool(
+                name="Artifact",
+                description="d",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string", "pattern": "^[^\\0]*$"},
+                        "pattern": {"type": "string"},
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "string", "pattern": "^a+$"},
+                        },
+                    },
+                    "required": ["title"],
+                },
+            )
+        ],
+    )
+    body = deepseek_provider._build_request_body(request)
+    schema = body["tools"][0]["input_schema"]
+    assert "pattern" not in schema["properties"]["title"]
+    assert schema["properties"]["title"] == {"type": "string"}
+    assert schema["properties"]["items"]["items"] == {"type": "string"}
+    # A property literally named "pattern" is a schema dict and must survive.
+    assert schema["properties"]["pattern"] == {"type": "string"}
+    assert schema["required"] == ["title"]
+    assert schema["type"] == "object"
+
+
+def test_build_request_body_does_not_mutate_request_tool_schema(deepseek_provider):
+    schema = {"type": "string", "pattern": "^x$"}
+    request = MessagesRequest(
+        model="deepseek-v4-pro",
+        max_tokens=100,
+        messages=[Message(role="user", content="hi")],
+        tools=[Tool(name="t", description="d", input_schema=schema)],
+    )
+    deepseek_provider._build_request_body(request)
+    assert schema == {"type": "string", "pattern": "^x$"}
+
+
+def test_build_request_body_without_tools_has_no_tools_key(deepseek_provider):
+    request = MessagesRequest(
+        model="deepseek-v4-pro",
+        max_tokens=100,
+        messages=[Message(role="user", content="hi")],
+    )
+    body = deepseek_provider._build_request_body(request)
+    assert "tools" not in body

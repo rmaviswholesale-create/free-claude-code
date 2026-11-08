@@ -396,6 +396,7 @@ def build_request_body(request_data: Any, *, thinking_enabled: bool) -> dict:
     _validate_deepseek_native_request_dict(data)
     data.pop("extra_body", None)
     _downgrade_forced_tool_choice(data)
+    _sanitize_tool_schemas(data)
 
     has_tool_history = _has_tool_history(data)
     has_replayable_tool_thinking = _has_replayable_tool_thinking(data)
@@ -457,6 +458,40 @@ def build_request_body(request_data: Any, *, thinking_enabled: bool) -> dict:
         len(data.get("tools", [])),
     )
     return data
+
+
+def _strip_schema_patterns(schema: Any) -> Any:
+    """Return a copy of a JSON Schema without ``pattern`` keywords.
+
+    DeepSeek's validator rejects some regexes that Claude Code tool schemas use
+    (e.g. ``^[^\\0]*$``) with a 400. ``pattern`` is advisory, so dropping it
+    keeps the tool usable. A property *named* ``pattern`` is a dict, not a
+    string, so it is preserved.
+    """
+    if isinstance(schema, dict):
+        return {
+            key: _strip_schema_patterns(value)
+            for key, value in schema.items()
+            if not (key == "pattern" and isinstance(value, str))
+        }
+    if isinstance(schema, list):
+        return [_strip_schema_patterns(item) for item in schema]
+    return schema
+
+
+def _sanitize_tool_schemas(data: dict[str, Any]) -> None:
+    tools = data.get("tools")
+    if not isinstance(tools, list):
+        return
+    sanitized: list[Any] = []
+    for tool in tools:
+        if isinstance(tool, dict) and "input_schema" in tool:
+            tool = {
+                **tool,
+                "input_schema": _strip_schema_patterns(tool["input_schema"]),
+            }
+        sanitized.append(tool)
+    data["tools"] = sanitized
 
 
 def _downgrade_forced_tool_choice(data: dict[str, Any]) -> None:
